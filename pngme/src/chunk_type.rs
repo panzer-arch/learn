@@ -1,6 +1,13 @@
-use std::{fmt::{Debug, Display, Error}, str::FromStr};
+/**
+ * png 文件由多个chunk组成
+ * 每个 chunk 有一个由4个字节组成的类型标识符
+ */
+use std::{
+    fmt::{Debug, Display, Error},
+    str::FromStr,
+};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ChunkType {
     data: [u8; 4],
 }
@@ -11,31 +18,27 @@ impl ChunkType {
     }
 
     pub fn is_valid(&self) -> bool {
-        true
+        self.data[2].is_ascii_uppercase()
     }
 
     fn is_critical(&self) -> bool {
         self.data[0].is_ascii_uppercase()
     }
 
-
     fn is_public(&self) -> bool {
         self.data[1].is_ascii_uppercase()
     }
-
 
     fn is_reserved_bit_valid(&self) -> bool {
         self.data[2].is_ascii_uppercase()
     }
 
-
     fn is_safe_to_copy(&self) -> bool {
         self.data[3].is_ascii_lowercase()
     }
-
 }
 
-impl TryFrom<[u8;4]> for ChunkType {
+impl TryFrom<[u8; 4]> for ChunkType {
     type Error = Error;
 
     fn try_from(bytes: [u8; 4]) -> Result<Self, Error> {
@@ -52,6 +55,17 @@ impl FromStr for ChunkType {
             return Err(Error);
         }
 
+        for &byte in bytes {
+            println!("byteData: {}", byte);
+            if byte < 65 || byte > 122 {
+                return Err(Error);
+            }
+
+            if byte > 90 && byte < 97 {
+                return Err(Error);
+            }
+        }
+
         let mut data = [0; 4];
         data.copy_from_slice(bytes);
 
@@ -65,7 +79,6 @@ impl Display for ChunkType {
         write!(f, "{}", s)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
