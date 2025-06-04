@@ -18,7 +18,7 @@ impl Chunk {
         self.data.len()
     }
 
-    fn chunk_type(&self) -> String {
+    pub fn chunk_type(&self) -> String {
         self.chunk_type.to_string()
     }
 
@@ -30,7 +30,7 @@ impl Chunk {
         X25.checksum(arr)
     }
 
-    fn data_as_string(&self) -> Result<String, FromUtf8Error> {
+    pub fn data_as_string(&self) -> Result<String, FromUtf8Error> {
         String::from_utf8(self.data.clone())
     }
 

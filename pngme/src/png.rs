@@ -1,5 +1,5 @@
-use crate::chunk::Chunk;
-use std::fmt::Error;
+use crate::{chunk::Chunk, chunk_type};
+use std::fmt::{Display, Error};
 
 pub struct Png {
     chunks: Vec<Chunk>,
@@ -15,19 +15,103 @@ impl Png {
     pub fn chunks(&self) -> Vec<Chunk> {
         self.chunks.clone()
     }
+
+    pub fn chunk_by_type(&self, chunk_type: &str) -> Option<Chunk> {
+        self.chunks
+            .iter()
+            .find(|chunk| chunk.chunk_type() == chunk_type)
+            .cloned()
+    }
+
+    pub fn append_chunk(&mut self, chunk: Chunk) {
+        self.chunks.push(chunk);
+    }
+
+    pub fn remove_first_chunk(&mut self, chunk_type: &str) -> Result<(), Error> {
+        if let Some(pos) = self
+            .chunks
+            .iter()
+            .position(|c| c.chunk_type() == chunk_type)
+        {
+            self.chunks.remove(pos);
+            Ok(())
+        } else {
+            Err(Error)
+        }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&Self::STANDARD_HEADER);
+        for chunk in &self.chunks {
+            bytes.append(&mut chunk.as_bytes());
+        }
+        bytes
+    }
 }
 
-impl TryFrom<&Vec<u8>> for Png {
+impl TryFrom<Vec<u8>> for Png {
     type Error = Error;
 
-    fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
         if value.len() < 8 {
             return Err(Error);
         }
         if &value[0..8] != Png::STANDARD_HEADER {
             return Err(Error);
         }
-        Ok(Png { chunks: vec![] })
+        let mut chunks = Vec::new();
+        let mut index = 8;
+        while index < value.len() {
+            let chunk_data_len = value[index..index + 4]
+                .try_into()
+                .map(u32::from_be_bytes)
+                .map_err(|_| Error)?;
+            let chunk_len = 12 + chunk_data_len as usize;
+            let chunk_bytes = &value[index..index + chunk_len];
+            let chunk = Chunk::try_from(chunk_bytes).map_err(|_| Error)?;
+            chunks.push(chunk);
+            index += chunk_len;
+        }
+        Ok(Png { chunks })
+    }
+}
+
+impl TryFrom<&[u8]> for Png {
+    type Error = Error;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value.len() < 8 {
+            return Err(Error);
+        }
+        if &value[0..8] != Png::STANDARD_HEADER {
+            return Err(Error);
+        }
+        let mut chunks = Vec::new();
+        let mut index = 8;
+        println!("value length: {}", value.len());
+        while index < value.len() {
+            let chunk_data_len = value[index..index + 4]
+                .try_into()
+                .map(u32::from_be_bytes)
+                .map_err(|_| Error)?;
+            println!("chunk_data_len: {}", chunk_data_len);
+            let chunk_len = 12 + chunk_data_len as usize;
+            if (index + chunk_len) > value.len() {
+                return Err(Error);
+            }
+            let chunk_bytes = &value[index..index + chunk_len];
+            let chunk = Chunk::try_from(chunk_bytes).map_err(|_| Error)?;
+            chunks.push(chunk);
+            index += chunk_len;
+        }
+        Ok(Png { chunks })
+    }
+}
+
+impl Display for Png {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PNG with {} chunks", self.chunks.len())
     }
 }
 
