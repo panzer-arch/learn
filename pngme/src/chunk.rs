@@ -1,8 +1,6 @@
 use crate::chunk_type::ChunkType;
+use anyhow::{bail, Error, Result};
 use std::fmt::Display;
-use std::fmt::Error;
-use std::string::FromUtf8Error;
-
 #[derive(Debug, PartialEq, Clone)]
 pub struct Chunk {
     data: Vec<u8>,
@@ -30,8 +28,9 @@ impl Chunk {
         X25.checksum(arr)
     }
 
-    pub fn data_as_string(&self) -> Result<String, FromUtf8Error> {
-        String::from_utf8(self.data.clone())
+    pub fn data_as_string(&self) -> Result<String> {
+        let str = String::from_utf8(self.data.clone())?;
+        Ok(str)
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {
@@ -52,11 +51,11 @@ impl TryFrom<&[u8]> for Chunk {
     type Error = Error;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if value.len() < 12 {
-            return Err(Error);
+            bail!("分块长度不应该少于12字节");
         }
         let length = u32::from_be_bytes(value[0..4].try_into().unwrap());
         if (length as usize) != value.len() - 12 {
-            return Err(Error);
+            bail!("分块数据长度和设置的长度不一致");
         }
         let type_arr: [u8; 4] = value[4..8].try_into().unwrap();
         let data_arr: &[u8] = &value[8..(value.len() - 4)];
@@ -65,7 +64,7 @@ impl TryFrom<&[u8]> for Chunk {
             chunk_type: ChunkType::try_from(type_arr).unwrap(),
         };
         if chunk.crc() != u32::from_be_bytes(value[(value.len() - 4)..].try_into().unwrap()) {
-            return Err(Error);
+            bail!("crc计算错误");
         }
         Ok(chunk)
     }

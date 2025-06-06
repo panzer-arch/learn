@@ -1,9 +1,10 @@
+use anyhow::{bail, Error, Result};
 /**
  * png 文件由多个chunk组成
  * 每个 chunk 有一个由4个字节组成的类型标识符
  */
 use std::{
-    fmt::{Debug, Display, Error},
+    fmt::{Debug, Display},
     str::FromStr,
 };
 
@@ -41,7 +42,7 @@ impl ChunkType {
 impl TryFrom<[u8; 4]> for ChunkType {
     type Error = Error;
 
-    fn try_from(bytes: [u8; 4]) -> Result<Self, Error> {
+    fn try_from(bytes: [u8; 4]) -> Result<Self> {
         Ok(ChunkType { data: bytes })
     }
 }
@@ -52,17 +53,16 @@ impl FromStr for ChunkType {
     fn from_str(s: &str) -> Result<Self, Error> {
         let bytes = s.as_bytes();
         if bytes.len() != 4 {
-            return Err(Error);
+            bail!("分块类型长度不对,应为4字节");
         }
 
         for &byte in bytes {
-            println!("byteData: {}", byte);
             if byte < 65 || byte > 122 {
-                return Err(Error);
+                bail!("分块类型只能为ascii码中a-z和A-Z范围");
             }
 
             if byte > 90 && byte < 97 {
-                return Err(Error);
+                bail!("分块类型只能为ascii码中a-z和A-Z范围");
             }
         }
 

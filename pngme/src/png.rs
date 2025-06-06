@@ -1,5 +1,6 @@
-use crate::{chunk::Chunk, chunk_type};
-use std::fmt::{Display, Error};
+use crate::chunk::Chunk;
+use anyhow::{anyhow, bail, Error, Result};
+use std::fmt::Display;
 
 pub struct Png {
     chunks: Vec<Chunk>,
@@ -27,7 +28,7 @@ impl Png {
         self.chunks.push(chunk);
     }
 
-    pub fn remove_first_chunk(&mut self, chunk_type: &str) -> Result<(), Error> {
+    pub fn remove_first_chunk(&mut self, chunk_type: &str) -> Result<()> {
         if let Some(pos) = self
             .chunks
             .iter()
@@ -36,7 +37,7 @@ impl Png {
             self.chunks.remove(pos);
             Ok(())
         } else {
-            Err(Error)
+            bail!("没找到")
         }
     }
 
@@ -55,10 +56,10 @@ impl TryFrom<Vec<u8>> for Png {
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
         if value.len() < 8 {
-            return Err(Error);
+            bail!("长度不能少于8字节");
         }
         if &value[0..8] != Png::STANDARD_HEADER {
-            return Err(Error);
+            bail!("前8字节不为png标准头");
         }
         let mut chunks = Vec::new();
         let mut index = 8;
@@ -66,10 +67,10 @@ impl TryFrom<Vec<u8>> for Png {
             let chunk_data_len = value[index..index + 4]
                 .try_into()
                 .map(u32::from_be_bytes)
-                .map_err(|_| Error)?;
+                .map_err(|_| anyhow!("四字节解析为u32错误"))?;
             let chunk_len = 12 + chunk_data_len as usize;
             let chunk_bytes = &value[index..index + chunk_len];
-            let chunk = Chunk::try_from(chunk_bytes).map_err(|_| Error)?;
+            let chunk = Chunk::try_from(chunk_bytes)?;
             chunks.push(chunk);
             index += chunk_len;
         }
@@ -82,10 +83,10 @@ impl TryFrom<&[u8]> for Png {
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if value.len() < 8 {
-            return Err(Error);
+            bail!("长度不能少于8字节");
         }
         if &value[0..8] != Png::STANDARD_HEADER {
-            return Err(Error);
+            bail!("前8字节不为png标准头");
         }
         let mut chunks = Vec::new();
         let mut index = 8;
@@ -94,14 +95,14 @@ impl TryFrom<&[u8]> for Png {
             let chunk_data_len = value[index..index + 4]
                 .try_into()
                 .map(u32::from_be_bytes)
-                .map_err(|_| Error)?;
+                .map_err(|_| anyhow!("四字节解析为u32错误"))?;
             println!("chunk_data_len: {}", chunk_data_len);
             let chunk_len = 12 + chunk_data_len as usize;
             if (index + chunk_len) > value.len() {
-                return Err(Error);
+                bail!("计算错误长度不对");
             }
             let chunk_bytes = &value[index..index + chunk_len];
-            let chunk = Chunk::try_from(chunk_bytes).map_err(|_| Error)?;
+            let chunk = Chunk::try_from(chunk_bytes)?;
             chunks.push(chunk);
             index += chunk_len;
         }
