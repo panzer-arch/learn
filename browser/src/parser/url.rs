@@ -1,7 +1,10 @@
-use std::net::SocketAddr;
+use std::{collections::HashMap, net::SocketAddr};
 
 use anyhow::{Error, Result, anyhow, bail};
-use tokio::{io::AsyncWriteExt, net::TcpSocket};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpSocket,
+};
 
 pub struct URL {
     pub url: String,
@@ -11,13 +14,39 @@ pub struct URL {
 }
 
 impl URL {
-    pub async fn request(&self) -> Result<()> {
+    pub async fn request(&self) -> Result<String> {
         let addr = SocketAddr::new(self.host.parse()?, 80);
         let socket = TcpSocket::new_v4()?;
         let mut stream = socket.connect(addr).await?;
         let request = format!("GET {} HTTP/1.0\r\nHost: {}\r\n\r\n", self.path, self.host);
         stream.write_all(request.as_bytes()).await?;
-        Ok(())
+        stream.readable().await?;
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await?;
+        let lines = response.lines().collect::<Vec<&str>>();
+        let mut line_iter = lines.iter();
+        let mut response_headers = HashMap::new();
+        loop {
+            match line_iter.next() {
+                Some(line) => {
+                    if line.is_empty() {
+                        break; // End of headers
+                    }
+                    let split_line = line.splitn(2, ":").collect::<Vec<&str>>();
+                    let key = split_line.get(0).ok_or(anyhow!("Invalid header format"))?;
+                    let value = split_line.get(1).ok_or(anyhow!("Invalid header format"))?;
+                    response_headers.insert(key.to_lowercase(), value.trim());
+                }
+                None => break,
+            };
+        }
+        let content = line_iter.map(|s| s.to_string()).collect::<Vec<String>>();
+        Ok(content.join("\r\n"))
+    }
+
+    pub fn show(body: String) {
+        let mut in_tag = false;
+        
     }
 }
 
