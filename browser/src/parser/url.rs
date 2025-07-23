@@ -1,10 +1,15 @@
-use std::{collections::HashMap, net::SocketAddr};
-
+use std::{
+    collections::HashMap,
+    net::{SocketAddr, ToSocketAddrs},
+    sync::Arc,
+};
 use anyhow::{Error, Result, anyhow, bail};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpSocket,
+    net::TcpStream,
 };
+use rustls::pki_types::ServerName;
+use tokio_rustls::{rustls, TlsConnector};
 
 pub struct URL {
     pub url: String,
@@ -15,16 +20,33 @@ pub struct URL {
 
 impl URL {
     pub async fn request(&self) -> Result<String> {
-        let addr = SocketAddr::new(self.host.parse()?, 80);
-        let socket = TcpSocket::new_v4()?;
-        let mut stream = socket.connect(addr).await?;
+        let mut root_cert_store = rustls::RootCertStore::empty();
+        root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let config = rustls::ClientConfig::builder()
+            .with_root_certificates(root_cert_store)
+            .with_no_client_auth();
+        let server_details = format!("{}:{}", self.host, 443);
+        let stream = TcpStream::connect(server_details).await?;
+        let connector = TlsConnector::from(Arc::new(config));
+        let server_name = self.host.clone();
+        let domain = ServerName::try_from(server_name)?;
+        let mut stream = connector.connect(domain, stream).await?;
         let request = format!("GET {} HTTP/1.0\r\nHost: {}\r\n\r\n", self.path, self.host);
         stream.write_all(request.as_bytes()).await?;
-        stream.readable().await?;
+        stream.get_ref().0.readable().await?;
         let mut response = String::new();
         stream.read_to_string(&mut response).await?;
         let lines = response.lines().collect::<Vec<&str>>();
         let mut line_iter = lines.iter();
+        let status_line = line_iter.next();
+        if let Some(status) = status_line {
+            let status_parts: Vec<&str> = status.split_whitespace().collect();
+            if status_parts.len() < 2 {
+                bail!("Invalid response status line: {}", status);
+            }
+        } else {
+            bail!("No response from server");
+        }
         let mut response_headers = HashMap::new();
         loop {
             match line_iter.next() {
@@ -33,6 +55,7 @@ impl URL {
                         break; // End of headers
                     }
                     let split_line = line.splitn(2, ":").collect::<Vec<&str>>();
+                    println!("Header: {}", split_line.join(":"));
                     let key = split_line.get(0).ok_or(anyhow!("Invalid header format"))?;
                     let value = split_line.get(1).ok_or(anyhow!("Invalid header format"))?;
                     response_headers.insert(key.to_lowercase(), value.trim());
@@ -42,11 +65,6 @@ impl URL {
         }
         let content = line_iter.map(|s| s.to_string()).collect::<Vec<String>>();
         Ok(content.join("\r\n"))
-    }
-
-    pub fn show(body: String) {
-        let mut in_tag = false;
-        
     }
 }
 
@@ -79,6 +97,28 @@ impl TryFrom<&str> for URL {
             })
         }
     }
+}
+
+pub fn show(body: String) {
+    let mut in_tag = false;
+    for c in body.chars() {
+        if c == '<' {
+            in_tag = true;
+            print!("<");
+        } else if c == '>' {
+            in_tag = false;
+            print!(">");
+        } else {
+            print!("{}", c);
+        }
+    }
+}
+
+pub async fn load(url: &str) -> Result<URL> {
+    let url = URL::try_from(url)?;
+    let body = url.request().await?;
+    show(body);
+    Ok(url)
 }
 
 #[cfg(test)]
