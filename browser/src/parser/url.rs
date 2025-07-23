@@ -14,28 +14,35 @@ use tokio_rustls::{rustls, TlsConnector};
 pub struct URL {
     pub url: String,
     pub scheme: String,
-    pub host: String,
+    pub hostname: String,
     pub path: String,
+    pub port: u16,
 }
 
 impl URL {
     pub async fn request(&self) -> Result<String> {
-        let mut root_cert_store = rustls::RootCertStore::empty();
-        root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let config = rustls::ClientConfig::builder()
-            .with_root_certificates(root_cert_store)
-            .with_no_client_auth();
-        let server_details = format!("{}:{}", self.host, 443);
-        let stream = TcpStream::connect(server_details).await?;
-        let connector = TlsConnector::from(Arc::new(config));
-        let server_name = self.host.clone();
-        let domain = ServerName::try_from(server_name)?;
-        let mut stream = connector.connect(domain, stream).await?;
-        let request = format!("GET {} HTTP/1.0\r\nHost: {}\r\n\r\n", self.path, self.host);
-        stream.write_all(request.as_bytes()).await?;
-        stream.get_ref().0.readable().await?;
+        let host = format!("{}:{}", self.hostname, self.port);
+        let request = format!("GET {} HTTP/1.0\r\nHost: {}\r\n\r\n", self.path, host);
         let mut response = String::new();
-        stream.read_to_string(&mut response).await?;
+        if self.scheme == "https" {
+            let mut root_cert_store = rustls::RootCertStore::empty();
+            root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            let config = rustls::ClientConfig::builder()
+              .with_root_certificates(root_cert_store)
+              .with_no_client_auth();
+            let stream = TcpStream::connect(host.clone()).await?;
+            let connector = TlsConnector::from(Arc::new(config));
+            let domain = ServerName::try_from(self.hostname.clone())?;
+            let mut stream = connector.connect(domain, stream).await?;
+            stream.write_all(request.as_bytes()).await?;
+            stream.get_ref().0.readable().await?;
+            stream.read_to_string(&mut response).await?;
+        } else {
+            let mut stream = TcpStream::connect(host.clone()).await?;
+            stream.write_all(request.as_bytes()).await?;
+            stream.readable().await?;
+            stream.read_to_string(&mut response).await?;
+        }
         let lines = response.lines().collect::<Vec<&str>>();
         let mut line_iter = lines.iter();
         let status_line = line_iter.next();
@@ -87,13 +94,24 @@ impl TryFrom<&str> for URL {
                 url.to_string()
             };
             let url_split = url.split("/").collect::<Vec<&str>>();
-            let host = *url_split.get(0).ok_or(anyhow!("Host cannot be empty"))?;
+            let mut host = *url_split.get(0).ok_or(anyhow!("Host cannot be empty"))?;
             let path = format!("/{}", url_split[1..].join("/"));
+            let host_split = host.splitn(2, ':').collect::<Vec<&str>>();
+            let mut port = if scheme == "https" {
+                443
+            } else {
+                80
+            };
+            if host_split.len() == 2 {
+                host = *host_split.get(0).ok_or(anyhow!("Host cannot be empty"))?;
+                port = host_split.get(1).ok_or(anyhow!("port error"))?.parse::<u16>()?;
+            }
             Ok(URL {
                 url: url.to_string(),
                 scheme: scheme.to_string(),
-                host: host.to_string(),
+                hostname: host.to_string(),
                 path,
+                port,
             })
         }
     }
